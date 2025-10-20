@@ -1,0 +1,8 @@
+
+jobmanager.rpc.address: jobmanager
+taskmanager.numberOfTaskSlots: 8
+parallelism.default: 8
+rest.port: 8081
+
+jobmanager.memory.process.size: 1024m
+taskmanager.memory.process.size: 2048m

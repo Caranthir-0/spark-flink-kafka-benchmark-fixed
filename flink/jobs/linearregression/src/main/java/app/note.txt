@@ -1,0 +1,65 @@
+Krótko i na temat — ten job to prosty, strumieniowy “ETL + predykcja” między dwiema kolejkami Kafki:
+
+Co wchodzi i co wychodzi
+	•	Źródło: Kafka topic1 (wewn. adres kafka:9092).
+	•	Format wejścia (1 linia = 1 rekord):
+f0,f1,...,fn;label
+gdzie f* to floaty (cechy), a label to float (wartość docelowa).
+	•	Wyjście: Kafka topic2, wiersz:
+f0,f1,...,fn;label;prediction;t1
+
+Przepływ w kodzie
+	1.	Środowisko Flinka
+	•	StreamExecutionEnvironment z paralelizmem 8 (domyślnie; docelowy paralelizm możesz nadpisać przy submitcie -p).
+	•	Brak wodymetek: WatermarkStrategy.noWatermarks() (nie robimy event-time).
+	2.	Źródło Kafka (KafkaSource)
+	•	setBootstrapServers("kafka:9092"), setTopics("topic1"), setGroupId("flink-ml").
+	•	Start od najnowszych offsetów: OffsetsInitializer.latest().
+	•	Deserializacja wartości: SimpleStringSchema (czytamy surowe stringi).
+	3.	Parser → POJO (Karp)
+	•	Mapowanie String -> Karp:
+	•	split(";"): po lewej cechy, po prawej label.
+	•	split(",") cech i Double.parseDouble.
+	•	t1 = System.nanoTime() — znacznik czasu „wejścia” (do prostych pomiarów opóźnień).
+	4.	„Model” (predykcja)
+	•	Drugi map: oblicza prediction jako średnią cech (w = 1/len(features), yhat = sum(f) * w).
+	•	To świadomie prosty model demo, który imituje przepływ ML bez zewnętrznych bibliotek.
+	5.	Formatowanie wyjścia
+	•	PredictionResults -> String: features;label;prediction;t1.
+	6.	Sink do Kafki (KafkaSink)
+	•	Producent z tą samą konfiguracją brokerów, topic = "topic2".
+	•	Serializacja SimpleStringSchema.
+	7.	Uruchomienie joba
+	•	env.execute(LinearRegressionStreamProcessor.class.getName()) — start DAG-a operatorów.
+
+Co to daje w praktyce
+	•	End-to-end pipeline: Kafka (topic1) → Flink (parse+predykcja) → Kafka (topic2).
+	•	Metryki: w UI Flinka zobaczysz numRecordsIn/Out(PerSecond) dla operatorów Source/Map/Sink (gdy płyną dane).
+	•	Pomiar opóźnień: masz t1 (czas po sparsowaniu). Gdybyś w konsumerze topic2 dodał t3 = System.nanoTime(), otrzymasz echo E2E latency.
+
+Przykład
+
+Wejście (topic1):
+
+1.0,2.0,3.0;2.0
+
+Predykcja: (1+2+3)/3 = 2.0
+Wyjście (topic2):
+
+1.0,2.0,3.0;2.0;2.0;1234567890123
+
+Założenia i ograniczenia
+	•	Brak walidacji formatu — złe linie mogą rzucić NumberFormatException/ArrayIndexOutOfBoundsException.
+	•	Brak watermarków i time windowów — to czysty „record-at-a-time”.
+	•	Model to prosty placeholder. Możesz go zastąpić czymś sensowniejszym (np. wczytywanie wag z pliku / broadcast).
+
+Gdzie zmieniać logikę
+	•	Logika predykcji: wewnątrz drugiego map (sekcja “Simple fixed-weight prediction…”).
+	•	Tematy: w konfiguracji KafkaSource/KafkaSink (topic1/topic2).
+	•	Grupa konsumencka: setGroupId("flink-ml").
+	•	Paralelizm: globalnie env.setParallelism, ale lepiej sterować przy submitcie (-p 2, -p 8).
+
+Jeśli chcesz, mogę:
+	•	dodać obsługę błędów (try/catch + metryki odrzuceń),
+	•	wprowadzić timestamp t2/t3 i wyliczanie latency,
+	•	podmienić „model” na np. wczytywanie współczynników z pliku/configu albo MapState z broadcast streamu.
