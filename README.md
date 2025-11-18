@@ -77,15 +77,21 @@ This job reads from `topic1`, performs the same simple prediction logic, and wri
 
 ### 1) Submit Spark job from the running container
 ```bash
-docker compose exec jobmanager bash -lc '
-  cd /opt/sparkjob && \
-  mvn -q -DskipTests package && \
+docker compose exec -d jobmanager bash -lc '
+  cd /opt/sparkjob && mvn -q -DskipTests clean package && \
   /opt/spark/bin/spark-submit \
     --class app.LinearRegression \
     --master local[*] \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.2 \
+    --conf spark.ui.enabled=true \
+    --conf spark.ui.port=4040 \
+    --conf spark.driver.bindAddress=0.0.0.0 \
+    --conf spark.driver.host=jobmanager \
     target/spark-linearregression-1.0.1.jar
 '
+
+#(optional) check if job is running
+
 ```
 
 Notes:
