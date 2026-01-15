@@ -1,0 +1,17 @@
+
+# macOS
+.DS_Store
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Maven / Java build
+target/
+
+# Logs
+*.log

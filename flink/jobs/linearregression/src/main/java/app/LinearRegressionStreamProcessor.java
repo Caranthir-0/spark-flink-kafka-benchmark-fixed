@@ -1,4 +1,3 @@
-
 package app;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
@@ -11,12 +10,33 @@ import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
+import org.apache.flink.api.common.functions.RichMapFunction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 import java.util.Properties;
 
 // Minimal POJO
 // !! Placeholder model calculates average
 public class LinearRegressionStreamProcessor {
+
+  private static final Logger LOG = LoggerFactory.getLogger(LinearRegressionStreamProcessor.class);
+
+  public static class ThroughputLoggingMap extends RichMapFunction<PredictionResults, PredictionResults> {
+    private long count = 0L;
+    //private static final long STEP = 10_000L;
+
+    @Override
+    public PredictionResults map(PredictionResults value) {
+      count++;
+      long now = System.currentTimeMillis();
+      if (count <= 20) {
+        System.out.println("[FLINK-THROUGHPUT] first=" + count + " ts=" + now);
+      }
+      return value;
+    }
+  }
 
   public static class Karp {
     public double[] features;
@@ -62,9 +82,10 @@ public class LinearRegressionStreamProcessor {
   }
 
   public static void main(String[] args) throws Exception {
-    int parallelism = 8;
+    int parallelism = 1;
 
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    System.out.println("[FLINK-THROUGHPUT] job started");
     env.setParallelism(parallelism);
 
     Properties config = new Properties();
@@ -100,7 +121,7 @@ public class LinearRegressionStreamProcessor {
         String[] f = s[0].split(",");
         double[] features = Arrays.stream(f).mapToDouble(Double::parseDouble).toArray();
         double label = Double.parseDouble(s[1]);
-        long t1 = System.nanoTime();
+        long t1 = System.currentTimeMillis();
         return new Karp(features, label, t1);
       }
     });
@@ -115,7 +136,9 @@ public class LinearRegressionStreamProcessor {
       }
     });
 
-    DataStream<String> out = pred.map(new MapFunction<PredictionResults, String>() {
+    DataStream<PredictionResults> predWithLogging = pred.map(new ThroughputLoggingMap());
+
+    DataStream<String> out = predWithLogging.map(new MapFunction<PredictionResults, String>() {
       @Override public String map(PredictionResults pr) {
         return pr.toString();
       }
