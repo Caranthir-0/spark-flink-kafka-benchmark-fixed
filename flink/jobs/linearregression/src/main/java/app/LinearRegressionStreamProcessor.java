@@ -11,21 +11,64 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import org.apache.flink.api.common.functions.RichMapFunction;
+import org.apache.flink.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Properties;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.io.File;
+
 // Minimal POJO
-// !! Placeholder model calculates average
+// Loads a linear model (bias + weights) from JSON in model/ folder and applies y = bias + w^T x
 public class LinearRegressionStreamProcessor {
 
   private static final Logger LOG = LoggerFactory.getLogger(LinearRegressionStreamProcessor.class);
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static class LinearModel {
+    public double bias;
+    public double[] weights;
+  }
+
+  public static class ModelPredictMap extends RichMapFunction<Karp, PredictionResults> {
+    private transient LinearModel model;
+    private final String modelPath;
+
+    public ModelPredictMap(String modelPath) {
+      this.modelPath = modelPath;
+    }
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+      ObjectMapper om = new ObjectMapper();
+      File f = new File(modelPath);
+      if (!f.exists()) {
+        throw new IllegalStateException("Model file not found: " + modelPath);
+      }
+      this.model = om.readValue(f, LinearModel.class);
+      if (this.model.weights == null) {
+        throw new IllegalStateException("Model weights are null in: " + modelPath);
+      }
+      LOG.info("Loaded model from {} (bias={}, weights={})", modelPath, this.model.bias, this.model.weights.length);
+    }
+
+    @Override
+    public PredictionResults map(Karp k) {
+      double yhat = model.bias;
+      int n = Math.min(k.features.length, model.weights.length);
+      for (int i = 0; i < n; i++) {
+        yhat += k.features[i] * model.weights[i];
+      }
+      return new PredictionResults(k.features, k.label, yhat, k.t1);
+    }
+  }
+
   public static class ThroughputLoggingMap extends RichMapFunction<PredictionResults, PredictionResults> {
     private long count = 0L;
-    //private static final long STEP = 10_000L;
 
     @Override
     public PredictionResults map(PredictionResults value) {
@@ -83,6 +126,7 @@ public class LinearRegressionStreamProcessor {
 
   public static void main(String[] args) throws Exception {
     int parallelism = 1;
+    String modelPath = System.getenv().getOrDefault("MODEL_PATH", "/opt/flink/jobs/linearregression/model/model.json");
 
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     System.out.println("[FLINK-THROUGHPUT] job started");
@@ -126,15 +170,8 @@ public class LinearRegressionStreamProcessor {
       }
     });
 
-    // Simple fixed-weight prediction to mirror topology
-    DataStream<PredictionResults> pred = karpStream.map(new MapFunction<Karp, PredictionResults>() {
-      @Override public PredictionResults map(Karp k) {
-        double w = 1.0 / Math.max(1, k.features.length);
-        double yhat = 0.0;
-        for (double v : k.features) yhat += v * w;
-        return new PredictionResults(k.features, k.label, yhat, k.t1);
-      }
-    });
+    // Prediction using JSON-loaded model (analogous to Spark job)
+    DataStream<PredictionResults> pred = karpStream.map(new ModelPredictMap(modelPath));
 
     DataStream<PredictionResults> predWithLogging = pred.map(new ThroughputLoggingMap());
 
