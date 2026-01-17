@@ -6,6 +6,10 @@ import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 
 import java.util.Arrays;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+import com.google.gson.Gson;
 
 public class LinearRegression {
   public static class Karp {
@@ -41,8 +45,39 @@ public class LinearRegression {
     }
   }
 
+  public static class LinearModel implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
+
+    public double bias;
+    public double[] weights;
+    public int features;
+    public long seed;
+    public double noise;
+    public String note;
+  }
+
+  static LinearModel loadModel(String path) throws Exception {
+    String json = new String(Files.readAllBytes(Paths.get(path)));
+    return new Gson().fromJson(json, LinearModel.class);
+  }
+
+  static double predict(double[] x, LinearModel m) {
+    int n = Math.min(x.length, m.weights.length);
+    double y = m.bias;
+    for (int i = 0; i < n; i++) {
+      y += x[i] * m.weights[i];
+    }
+    return y;
+  }
+
   public static void main(String[] args) throws Exception {
     int parallelism = 8;
+
+    String modelPath = System.getenv().getOrDefault("MODEL_PATH", "/opt/model/linear_model.json");
+    LinearModel model = loadModel(modelPath);
+    if (model.weights == null || model.weights.length == 0) {
+      throw new IllegalStateException("Model weights are empty. Check MODEL_PATH=" + modelPath);
+    }
 
     SparkSession spark = SparkSession.builder()
             .appName("Simple-Application")
@@ -84,9 +119,7 @@ public class LinearRegression {
 
     Dataset<OutgoingKarp> outgoing = karpStream
             .map((MapFunction<Karp, OutgoingKarp>) (Karp k) -> {
-              double w = 1.0 / Math.max(1, k.features.length);
-              double yhat = 0.0;
-              for (double v : k.features) yhat += v * w;
+              double yhat = predict(k.features, model);
               OutgoingKarp o = new OutgoingKarp();
               o.features = k.features;
               o.label = k.label;

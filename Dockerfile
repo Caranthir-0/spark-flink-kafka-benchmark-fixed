@@ -46,7 +46,7 @@ COPY server.properties kafka/config/server.properties
 COPY create.topics.sh /opt/kafka/create.topics.sh
 COPY flink/jobs/ /opt/flink/jobs/
 COPY sparkjob/ /opt/sparkjob/
-COPY dsta.py /opt/dsta.py
+COPY StreamGen.py /opt/StreamGen.py
 
 EXPOSE 2181 9092 9094 8081
 WORKDIR /opt

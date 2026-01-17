@@ -20,12 +20,20 @@ services:
     ports:
       - "8081:8081"
       - "4040:4040"
+    environment:
+      - MODEL_PATH=/opt/model/linear_model.json
+    volumes:
+      - ./model:/opt/model:ro
 
   taskmanager:
     image: kafka-flink-streaming-fd
     working_dir: /opt/flink
     command: bash -lc "while ! nc -z kafka 9092; do sleep 0.2; done && bin/taskmanager.sh start-foreground"
     depends_on: [jobmanager]
+    environment:
+      - MODEL_PATH=/opt/model/linear_model.json
+    volumes:
+      - ./model:/opt/model:ro
 
   create_topics:
     image: kafka-flink-streaming-fd
