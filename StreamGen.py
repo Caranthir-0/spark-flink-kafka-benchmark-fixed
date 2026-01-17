@@ -1,4 +1,4 @@
-import argparse, random, sys, subprocess
+import argparse, random, sys, subprocess, numpy
 
 def fmt_record(feats, label):
     return ",".join(f"{x:.6f}" for x in feats) + f";{label:.6f}"
@@ -17,9 +17,14 @@ def main():
         stdin=subprocess.PIPE, text=True
     )
 
+    #parametry rozkładów zmiennych
+    mu = numpy.linspace(0, 10, args.features).astype(numpy.float32)
+    sigma = numpy.linspace(0.5, 2.0, args.features).astype(numpy.float32)
+
+    
     try:
         for i in range(args.count):
-            feats = [random.uniform(0, 10) for _ in range(args.features)]
+            feats = [random.gauss(float(mu[j]), float(sigma[j])) for j in range(args.features) ]
             label = sum(feats)/max(1,args.features) + random.uniform(-0.01, 0.01)
             rec = fmt_record(feats, label)
             # Zapis jednej linii do stdin producenta
